@@ -28,8 +28,6 @@ from uncertainties import unumpy as unp
 from module_data_path import cube_data_path, plot_data_path, fits_data_path, mask_data_path, catalog_data_path
 from module_utils import rms, smooth, cube_mom0, cube_mom8, cube_smoothing, plot_mom8, plot_mom8_comparison, plot_mom8_not_smoothed, mask_edges
 from module_clustering import make_clustering, make_catalog, make_plot_clusters, make_mask, catalog_mask_drop
-from module_data_spectra import make_spectra, plot_all_spectra
-from module_analysis import make_analysis
 
 stages = [1]
 
