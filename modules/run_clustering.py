@@ -91,6 +91,45 @@ def stage1():
     plot_mom8(path=data_mom8_path_13co, output_path=plots_path, prefix_source=prefix_source, prefix_emission='13co', gamma=1.0, vmin=0.0, vmax=25.0)
     plot_mom8(path=data_mom8_path_c18o, output_path=plots_path, prefix_source=prefix_source, prefix_emission='c18o', gamma=1.0, vmin=0.0, vmax=5.0)
     
+# clustering with astrodendro, extract first cluster catalog and masks
+def stage2():
+
+    # data, plots and fits files directory path
+    data_path = cube_data_path()
+    fits_path = fits_data_path()
+    plots_path = plot_data_path()
+    mask_path = mask_data_path()
+    catalog_path = catalog_data_path()
+
+
+    # original data cubes
+    data_path_12co = os.path.join(data_path, 'dr21_12co_cube.fits')
+    data_path_13co = os.path.join(data_path, 'dr21_13co_cube.fits')
+    data_path_c18o = os.path.join(data_path, 'dr21_c18o_cube.fits')
+
+    # Source prefix
+    prefix_source = 'dr21'
+
+    # Smoothed cubes path
+    data_sm_path_12co = os.path.join(fits_path, f'{prefix_source}_12co_smoothed.fits')
+    data_sm_path_13co = os.path.join(fits_path, f'{prefix_source}_13co_smoothed.fits')
+    data_sm_path_c18o = os.path.join(fits_path, f'{prefix_source}_c18o_smoothed.fits')
+
+    # Mom8 fits path
+    data_mom8_path_12co = os.path.join(fits_path, f'{prefix_source}_12co_mom8.fits')
+    data_mom8_path_13co = os.path.join(fits_path, f'{prefix_source}_13co_mom8.fits')
+    data_mom8_path_c18o = os.path.join(fits_path, f'{prefix_source}_c18o_mom8.fits')
+
+    # Astrodendro hyperparameters
+    T_rms = 0.35 # in K (corrected for main beam efficiency)
+    T_min = 3.0 * T_rms
+    T_delta = 2.0 * T_rms
+    n_vox = 16
+
+    make_clustering(cube_path=data_sm_path_c18o, catalog_path=catalog_path, mask_path=mask_path, T_min=T_min, T_delta=T_delta, n_vox=n_vox, prefix_source=prefix_source, prefix_emission='c18o', catalog=True, mask=True)
+    
+    make_plot_clusters(mom_path=data_mom8_path_c18o, catalog_path=catalog_path, mask_path=mask_path, plots_path=plots_path, prefix_source=prefix_source, prefix_emission='c18o', gamma=1.0, vmin=0.0, vmax=5.0)
+    
 
 
 if __name__ == '__main__': 
