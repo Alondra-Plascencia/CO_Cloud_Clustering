@@ -3,3 +3,5 @@
 /plots/*.pdf
 /mask/*.npy
 /fitsfiles/*.fits
+/catalog/*.csv
+/modules/__pycache__

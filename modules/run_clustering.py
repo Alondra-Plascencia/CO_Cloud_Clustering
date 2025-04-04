@@ -29,7 +29,7 @@ from module_data_path import cube_data_path, plot_data_path, fits_data_path, mas
 from module_utils import rms, smooth, cube_mom0, cube_mom8, cube_smoothing, plot_mom8, plot_mom8_comparison, plot_mom8_not_smoothed, mask_edges
 from module_clustering import make_clustering, make_catalog, make_plot_clusters, make_mask, catalog_mask_drop
 
-stages = [1]
+stages = [2]
 
 # cube smoothing and edges mask
 def stage1():
@@ -121,14 +121,14 @@ def stage2():
     data_mom8_path_c18o = os.path.join(fits_path, f'{prefix_source}_c18o_mom8.fits')
 
     # Astrodendro hyperparameters
-    T_rms = 0.35 # in K (corrected for main beam efficiency)
+    T_rms = 2.0 # in K (corrected for main beam efficiency)
     T_min = 3.0 * T_rms
     T_delta = 2.0 * T_rms
-    n_vox = 16
+    n_vox = 500
 
-    make_clustering(cube_path=data_sm_path_c18o, catalog_path=catalog_path, mask_path=mask_path, T_min=T_min, T_delta=T_delta, n_vox=n_vox, prefix_source=prefix_source, prefix_emission='c18o', catalog=True, mask=True)
+    make_clustering(cube_path=data_sm_path_12co, catalog_path=catalog_path, mask_path=mask_path, T_min=T_min, T_delta=T_delta, n_vox=n_vox, prefix_source=prefix_source, prefix_emission='12co', catalog=True, mask=True)
     
-    make_plot_clusters(mom_path=data_mom8_path_c18o, catalog_path=catalog_path, mask_path=mask_path, plots_path=plots_path, prefix_source=prefix_source, prefix_emission='c18o', gamma=1.0, vmin=0.0, vmax=5.0)
+    make_plot_clusters(mom_path=data_mom8_path_12co, catalog_path=catalog_path, mask_path=mask_path, plots_path=plots_path, prefix_source=prefix_source, prefix_emission='12co', gamma=1.0, vmin=0.0, vmax=45.0)
     
 
 
@@ -136,4 +136,6 @@ if __name__ == '__main__':
     
     if 1 in stages:
         stage1()
+    elif 2 in stages:
+        stage2()
 
