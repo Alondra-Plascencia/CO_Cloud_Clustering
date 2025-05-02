@@ -121,15 +121,37 @@ def stage2():
     data_mom8_path_c18o = os.path.join(fits_path, f'{prefix_source}_c18o_mom8.fits')
 
     # Astrodendro hyperparameters
-    T_rms = 2.0 # in K (corrected for main beam efficiency)
+    T_rms = 2.0 # in K (corrected for main beam efficiency) original = 2.0
     T_min = 3.0 * T_rms
     T_delta = 2.0 * T_rms
-    n_vox = 500
+    n_vox = 500 #original = 500
 
     make_clustering(cube_path=data_sm_path_12co, catalog_path=catalog_path, mask_path=mask_path, T_min=T_min, T_delta=T_delta, n_vox=n_vox, prefix_source=prefix_source, prefix_emission='12co', catalog=True, mask=True)
     
     make_plot_clusters(mom_path=data_mom8_path_12co, catalog_path=catalog_path, mask_path=mask_path, plots_path=plots_path, prefix_source=prefix_source, prefix_emission='12co', gamma=1.0, vmin=0.0, vmax=45.0)
     
+# drop bad indexes (by eye) before and after
+def stage3():
+    # fits, plots, catalog and mask files directory path
+    fits_path = fits_data_path()
+    plots_path = plot_data_path()
+    catalog_path = catalog_data_path()
+    mask_path = mask_data_path()
+
+    # Source prefix
+    prefix_source = 'dr21'
+
+    # Mom8 fits path
+    data_mom8_path_12co = os.path.join(fits_path, f'{prefix_source}_12co_mom8.fits')
+    data_mom8_path_13co = os.path.join(fits_path, f'{prefix_source}_13co_mom8.fits')
+    data_mom8_path_c18o = os.path.join(fits_path, f'{prefix_source}_c18o_mom8.fits')
+
+    # Drop list
+    drop_list = []
+
+    plot_mom8_comparison(mom_path=data_mom8_path_12co, plots_path=plots_path, catalog_path=catalog_path, prefix_source=prefix_source, prefix_emission='12co', dropped=False, gamma=1.0, vmin=0.0, vmax=45.0)
+    catalog_mask_drop(catalog_path=catalog_path, mask_path=mask_path, drop_list=drop_list, prefix_source=prefix_source, prefix_emission='12co')
+    plot_mom8_comparison(mom_path=data_mom8_path_12co, plots_path=plots_path, catalog_path=catalog_path, prefix_source=prefix_source, prefix_emission='12co', dropped=True, gamma=1.0, vmin=0.0, vmax=45.0)
 
 
 if __name__ == '__main__': 
@@ -138,4 +160,5 @@ if __name__ == '__main__':
         stage1()
     elif 2 in stages:
         stage2()
-
+    elif 3 in stages:
+        stage3()
