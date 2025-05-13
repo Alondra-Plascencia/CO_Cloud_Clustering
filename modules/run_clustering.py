@@ -1,6 +1,7 @@
 # Libraries
 
 # Standard
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -26,10 +27,10 @@ from uncertainties import unumpy as unp
 
 # External modules
 from module_data_path import cube_data_path, plot_data_path, fits_data_path, mask_data_path, catalog_data_path
-from module_utils import rms, smooth, cube_mom0, cube_mom8, cube_smoothing, plot_mom8, plot_mom8_comparison, plot_mom8_not_smoothed, mask_edges
+from module_utils import rms, smooth, cube_mom0, cube_mom8, cube_smoothing, plot_mom8, plot_mom8_comparison, plot_mom8_not_smoothed, mask_edges, distance_parallax
 from module_clustering import make_clustering, make_catalog, make_plot_clusters, make_mask, catalog_mask_drop
 
-stages = [2]
+stages = [4]
 
 # cube smoothing and edges mask
 def stage1():
@@ -153,6 +154,17 @@ def stage3():
     catalog_mask_drop(catalog_path=catalog_path, mask_path=mask_path, drop_list=drop_list, prefix_source=prefix_source, prefix_emission='12co')
     plot_mom8_comparison(mom_path=data_mom8_path_12co, plots_path=plots_path, catalog_path=catalog_path, prefix_source=prefix_source, prefix_emission='12co', dropped=True, gamma=1.0, vmin=0.0, vmax=45.0)
 
+#Calculates the mode, median, 5th and 95th percentiles, and the posterior normalization factor using the parallax and its error.
+def stageprueba():
+    # data files directory path
+    data_path = cube_data_path()
+    
+    # original data frame
+    data_frame = os.path.join(data_path, 'GaiaSource-prueba.csv')
+
+    #Calculate Distance
+    distance_parallax(data_frame)
+
 
 if __name__ == '__main__': 
     
@@ -162,3 +174,5 @@ if __name__ == '__main__':
         stage2()
     elif 3 in stages:
         stage3()
+    elif 4 in stages:
+        stageprueba()
