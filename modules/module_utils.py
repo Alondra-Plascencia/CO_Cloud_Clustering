@@ -315,21 +315,27 @@ def distance_parallax(data_frame):
 
     from Distance.distance import main_exp
 
-    df = pd.read_csv(data_frame, usecols=['parallax', 'parallax_error'])
+    df = pd.read_csv(data_frame, usecols=['designation', 'l', 'b','parallax', 'parallax_error'])
 
     # List of parallaxes and errors
+    designation = df['designation']
+    l = df['l']
+    b = df['b']
     parallax = df['parallax']
     errors = df['parallax_error']
 
     distancias = []
 
-    for w, s in zip(parallax, errors):
+    for d, l, b, w, s in zip(designation, l, b, parallax, errors):
         if np.isnan(w) or np.isnan(s):
             continue
         else:
             try:
                 r_5, r_mode, r_median, r_95, n = main_exp(float(w), float(s))
                 distancias.append({
+                    'source_id': d.replace('Gaia DR2 ', ''),
+                    'l': l,
+                    'b': b,
                     'parallax': w,
                     'error': s,
                     'r_mode_pc': r_mode,
