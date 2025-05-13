@@ -286,4 +286,61 @@ def mask_edges(data_path, mask_path, width=10, height=10, angle=0, x0=0, y0=0):
     np.save(os.path.join(mask_path,'mask_edges.npy'), mask)
     print('Saved mask for data edges')
 
-    
+def distance_parallax(data_frame):
+    """
+    Computes stellar distances from a CSV file containing parallax data using
+    a Bayesian method with an exponentially decreasing space density prior.
+
+    Parameters
+    ----------
+    data_path : str
+        Path to the CSV file containing at least two columns:
+        'parallax' and 'parallax_error'.
+
+    Behavior
+    --------
+    For each star in the dataset:
+    - If the parallax or its error is NaN, stores -1.
+    - Otherwise, applies the main_exp method to estimate:
+        - Mode
+        - Median
+        - 5th and 95th percentiles
+        - Posterior normalization factor
+
+    Output
+    ------
+    Saves a new CSV file '../data/distancias.csv' with the original parallax 
+    values and the computed distances in parsecs.
+    """
+
+    from Distance.distance import main_exp
+
+    df = pd.read_csv(data_frame, usecols=['parallax', 'parallax_error'])
+
+    # List of parallaxes and errors
+    parallax = df['parallax']
+    errors = df['parallax_error']
+
+    distancias = []
+
+    for w, s in zip(parallax, errors):
+        if np.isnan(w) or np.isnan(s):
+            continue
+        else:
+            try:
+                r_5, r_mode, r_median, r_95, n = main_exp(float(w), float(s))
+                distancias.append({
+                    'parallax': w,
+                    'error': s,
+                    'r_mode_pc': r_mode,
+                    'r_median_pc': r_median,
+                    'r_5%': r_5,
+                    'r_95%': r_95,
+                    'n_points': n
+                })
+            except Exception as e:
+                print(f"Error con w={w}, s={s}: {e}")
+                continue
+    # Convert to DataFrame and save to CSV
+    distancias_df = pd.DataFrame(distancias)
+    distancias_df.to_csv('../catalog/distancias.csv', index=False)
