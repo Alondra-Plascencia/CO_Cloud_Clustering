@@ -4,4 +4,7 @@
 /mask/*.npy
 /fitsfiles/*.fits
 /catalog/*.csv
+/data/*.csv
+/data/*.vot
+/data/*.fits
 /modules/__pycache__
