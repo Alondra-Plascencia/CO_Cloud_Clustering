@@ -79,7 +79,7 @@ def uniform_distance_posterior(x,w,s,r_lim):
         http://iopscience.iop.org/article/10.1086/683116/pdf
     """
     if x > 0 and x <= r_lim:
-        return np.float(np.exp(np.float(-(w-1/x)**2/(2*s**2))))/(s*np.sqrt(2*np.pi)*r_lim)
+        return float(np.exp(float(-(w-1/x)**2/(2*s**2))))/(s*np.sqrt(2*np.pi)*r_lim)
     else:
         return 0
     
@@ -188,10 +188,10 @@ def mode_r_exponential(L, w, sig_w):
     # - There's only one root.
     if len(solutions) == 3:  # If there are three real roots and the observed parallax is positive, the maximum value will be taken as the solution
         if w >= 0:
-            r_mo = np.float(min(solutions))
+            r_mo = float(min(solutions))
 
         else:
-            r_mo = np.float(max(solutions))
+            r_mo = float(max(solutions))
     else:
 
         r_mo = np.float64(abs(solutions[0]))
