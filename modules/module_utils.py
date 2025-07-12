@@ -315,10 +315,10 @@ def distance_parallax(data_frame):
 
     from Distance.distance import main_exp
 
-    df = pd.read_csv(data_frame, usecols=['designation', 'l', 'b','parallax', 'parallax_error'])
+    df = pd.read_csv(data_frame, usecols=['SOURCE_ID', 'l', 'b','parallax', 'parallax_error'])
 
     # List of parallaxes and errors
-    designation = df['designation']
+    designation = df['SOURCE_ID']
     l = df['l']
     b = df['b']
     parallax = df['parallax']
@@ -331,9 +331,9 @@ def distance_parallax(data_frame):
             continue
         else:
             try:
-                r_5, r_mode, r_median, r_95, n = main_exp(float(w), float(s))
+                r_5, r_mode, r_median, r_95, n = main_exp(np.float64(w),np.float64(s))
                 distancias.append({
-                    'source_id': d.replace('Gaia DR2 ', ''),
+                    'source_id': designation,
                     'l': l,
                     'b': b,
                     'parallax': w,
@@ -350,3 +350,41 @@ def distance_parallax(data_frame):
     # Convert to DataFrame and save to CSV
     distancias_df = pd.DataFrame(distancias)
     distancias_df.to_csv('../catalog/distancias.csv', index=False)
+    
+    
+def vot_to_csv(votable_path,prefix):
+    """
+    Converts a VOTable (.vot or .xml) file into a CSV file.
+
+    This function uses `astropy.io.votable` to parse a VOTable file and converts its first data table 
+    into a pandas DataFrame. It then saves the DataFrame as a CSV file in the `../data/` directory, 
+    using the specified prefix as the base name.
+
+    Parameters
+    ----------
+    votable_path : str
+        Path to the VOTable (.vot or .xml) file containing the data table.
+    
+    prefix : str
+        Prefix to use for naming the output CSV file.
+
+    Returns
+    -------
+    None
+        The function writes the CSV file directly to disk under the `../data/` directory.
+
+    Example
+    -------
+    >>> vot_to_csv("stars.vot", "stars_data")
+    # This will generate the file ../data/stars_data.csv
+
+    Notes
+    -----
+    - Make sure the VOTable contains at least one valid table.
+    - The CSV file will be overwritten if a file with the same name already exists.
+    - Requires the `astropy` and `pandas` packages to be installed.
+    """
+    from astropy.io.votable import parse
+    votable = parse(votable_path)
+    data_frame = pd.DataFrame(votable.get_first_table().array.data)
+    data_frame.to_csv('../data/' + prefix + '.csv', index=False)
