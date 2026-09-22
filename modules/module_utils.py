@@ -1,6 +1,8 @@
 # Libraries
 
 # Standard
+from tqdm import tqdm
+from typing import Union
 import numpy as np
 import pandas as pd
 import scipy
@@ -23,6 +25,9 @@ from astropy import units as u
 
 # Data Cube
 from spectral_cube import SpectralCube
+
+# External
+from module_data_path import cube_data_path, plot_data_path, fits_data_path, mask_data_path, catalog_data_path
 
 def Gauss_area(H,FWHM):
         resultado = H * FWHM / (0.3989423 * 2.3548200)
@@ -286,71 +291,111 @@ def mask_edges(data_path, mask_path, width=10, height=10, angle=0, x0=0, y0=0):
     np.save(os.path.join(mask_path,'mask_edges.npy'), mask)
     print('Saved mask for data edges')
 
-def distance_parallax(data_frame):
-    """
-    Computes stellar distances from a CSV file containing parallax data using
-    a Bayesian method with an exponentially decreasing space density prior.
+def distance_parallax(data_input: Union[str, pd.DataFrame]) -> None:
+    """Computes stellar distance estimators using a Bayesian exponentially decreasing space density prior.
+
+    This function accepts either a file path to a CSV catalog or an in-memory
+    pandas DataFrame. It validates and extracts necessary astrometric (parallax,
+    parallax_error) and photometric extinction columns, computes the extinction
+    uncertainty (a_g_error) if missing, and iteratively estimates stellar
+    distances using the `Distance.distance.main_exp` routine. The resulting
+    catalog includes mode, median, 5th and 95th percentiles, normalization
+    factors, and spatial cloud membership flags, saving the final table to disk.
 
     Parameters
     ----------
-    data_path : str
-        Path to the CSV file containing at least two columns:
-        'parallax' and 'parallax_error'.
+    data_input : str or pd.DataFrame
+        File path to a CSV file or an existing DataFrame containing Gaia
+        astrometry and photometry. Required columns include:
+        'source_id', 'l', 'b', 'parallax', 'parallax_error', 'a_g_val',
+        'a_g_percentile_lower', 'a_g_percentile_upper', and 'on_cloud'.
 
-    Behavior
-    --------
-    For each star in the dataset:
-    - If the parallax or its error is NaN, stores -1.
-    - Otherwise, applies the main_exp method to estimate:
-        - Mode
-        - Median
-        - 5th and 95th percentiles
-        - Posterior normalization factor
+    Returns
+    -------
+    None
+        The function does not return an object; it writes the computed
+        catalog directly to disk as 'distances.csv' inside the catalog
+        directory returned by `catalog_data_path()`.
 
-    Output
+    Raises
     ------
-    Saves a new CSV file '../data/distancias.csv' with the original parallax 
-    values and the computed distances in parsecs.
-    """
+    TypeError
+        If `data_input` is neither a string representing a valid path
+        nor a `pandas.DataFrame`.
+    FileNotFoundError
+        If `data_input` is a string path that does not exist on disk.
+    KeyError
+        If any of the required columns are missing from the input data.
 
+    Example
+    -------
+    >>> from module_utils import distance_parallax
+    >>> distance_parallax("../catalog/dr21_gaia_classified.csv")
+    Calculating distances: 100%|██████████| 511/511 [00:35<00:00, 14.20it/s]
+    Catalog of distances saved to: ../catalog/distances.csv (511 stars processed)
+
+    Notes
+    -----
+    - Uses an exponentially decreasing space density prior as formulated in
+      Bailer-Jones (2015) and Astraatmadja & Bailer-Jones (2016).
+    - Rows with missing values (`NaN`) in 'parallax', 'parallax_error',
+      or 'a_g_val' are automatically dropped prior to computation.
+    - Numerical integration failures for individual stars are caught, logged,
+      and skipped without interrupting the entire processing loop.
+    - Requires `pandas`, `numpy`, `tqdm`, and the local `Distance` package.
+    """
+    
     from Distance.distance import main_exp
 
-    df = pd.read_csv(data_frame, usecols=['SOURCE_ID', 'l', 'b','parallax', 'parallax_error'])
+    # Check input type
+    if isinstance(data_input, str):
+        df = pd.read_csv(data_input)
+    elif isinstance(data_input, pd.DataFrame):
+        df = data_input.copy()
+    else:
+        raise TypeError("data_input must be a file path (str) or a pandas DataFrame")
 
-    # List of parallaxes and errors
-    designation = df['SOURCE_ID']
-    l = df['l']
-    b = df['b']
-    parallax = df['parallax']
-    errors = df['parallax_error']
+    # Standardize column names
+    df.columns = [c.lower() for c in df.columns]
 
-    distancias = []
+    cols = ['source_id', 'l', 'b', 'parallax', 'parallax_error', 
+            'a_g_val', 'a_g_percentile_lower', 'a_g_percentile_upper', 'on_cloud']
 
-    for d, l, b, w, s in zip(designation, l, b, parallax, errors):
-        if np.isnan(w) or np.isnan(s):
+    df = df[cols].dropna(subset=['parallax', 'parallax_error', 'a_g_val'])
+
+    df['a_g_error'] = (df['a_g_percentile_upper'] - df['a_g_percentile_lower']) / 2.0
+
+    distances = []
+    for row in tqdm(df.itertuples(index=False), total=len(df), desc="Calculating distances"):
+        w = np.float64(row.parallax)
+        s = np.float64(row.parallax_error)
+        
+        try:
+            r_5, r_mode, r_median, r_95, n = main_exp(w, s)
+            distances.append({
+                'source_id': row.source_id,
+                'l': row.l,
+                'b': row.b,
+                'parallax': w,
+                'error': s,
+                'a_g_val': row.a_g_val,
+                'a_g_error': row.a_g_error,
+                'on_cloud': row.on_cloud,
+                'r_mode_pc': r_mode,
+                'r_median_pc': r_median,
+                'r_5%': r_5,
+                'r_95%': r_95,
+                'n_points': n
+            })
+        except Exception as e:
+            print(f"Error with star {row.source_id} (w={w}, s={s}): {e}")
             continue
-        else:
-            try:
-                r_5, r_mode, r_median, r_95, n = main_exp(np.float64(w),np.float64(s))
-                distancias.append({
-                    'source_id': designation,
-                    'l': l,
-                    'b': b,
-                    'parallax': w,
-                    'error': s,
-                    'r_mode_pc': r_mode,
-                    'r_median_pc': r_median,
-                    'r_5%': r_5,
-                    'r_95%': r_95,
-                    'n_points': n
-                })
-            except Exception as e:
-                print(f"Error con w={w}, s={s}: {e}")
-                continue
-    # Convert to DataFrame and save to CSV
-    distancias_df = pd.DataFrame(distancias)
-    distancias_df.to_csv('../catalog/distancias.csv', index=False)
-    
+
+    distances_df = pd.DataFrame(distances)
+    output_path = os.path.join(catalog_data_path(), 'distances.csv')
+    distances_df.to_csv(output_path, index=False)
+    print(f"Catalog of distances saved to: {output_path} ({len(distances_df)} stars processed)")
+
     
 def vot_to_csv(votable_path,prefix):
     """
@@ -385,6 +430,130 @@ def vot_to_csv(votable_path,prefix):
     - Requires the `astropy` and `pandas` packages to be installed.
     """
     from astropy.io.votable import parse
+
     votable = parse(votable_path)
     data_frame = pd.DataFrame(votable.get_first_table().array.data)
-    data_frame.to_csv('../data/' + prefix + '.csv', index=False)
+    
+    data_frame.columns = [c.lower() for c in data_frame.columns]
+    
+    output_file = os.path.join(cube_data_path(), f"{prefix}.csv")
+    data_frame.to_csv(output_file, index=False)
+    print(f"Archivo guardado exitosamente en: {output_file}")
+
+def classify_and_filter_stars(
+    catalog_df: pd.DataFrame,
+    fits_path: str,
+    mask_path: str,
+    prefix_source: str = "dr21",
+    prefix_emission: str = "12co",
+    min_parallax: float = 0.25,
+    min_ag_error: float = 0.05,
+) -> pd.DataFrame:
+    """Classifies Gaia stars as on-cloud or off-cloud and applies quality and distance cutoffs.
+
+    This function projects Galactic coordinates (l, b) into image pixel space
+    (x, y) using the WCS header of a reference FITS map. It evaluates spatial
+    overlap with a 2D collapsed dendrogram mask to determine cloud membership
+    ('on_cloud'). In accordance with the methodology of Yan et al. (2019), it
+    computes the extinction uncertainty (a_g_error) and applies lower-bound
+    thresholds to parallax and extinction uncertainty to discard background
+    noise and pathological weights.
+
+    Parameters
+    ----------
+    catalog_df : pd.DataFrame
+        Input catalog containing Gaia astrometric and photometric columns
+        ('l', 'b', 'parallax', 'a_g_percentile_lower', 'a_g_percentile_upper').
+    fits_path : str
+        Directory path containing the reference FITS moment map
+        (e.g., '{prefix_source}_{prefix_emission}_mom8.fits').
+    mask_path : str
+        Directory path containing the 3D Boolean mask array
+        (e.g., '{prefix_source}_{prefix_emission}_masks_dropped.npy').
+    prefix_source : str, optional
+        Prefix identifying the target molecular cloud source, by default 'dr21'.
+    prefix_emission : str, optional
+        Prefix identifying the molecular line emission tracer, by default '12co'.
+    min_parallax : float, optional
+        Minimum parallax cutoff in milliarcseconds (mas) to discard distant
+        background stars, by default 0.25 (corresponding to ~4000 pc).
+    min_ag_error : float, optional
+        Minimum uncertainty threshold in G-band extinction (mag) to prevent
+        overweighting in subsequent isotonic regression, by default 0.05.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered DataFrame containing stars located within the spatial bounds
+        of the FITS map that satisfy the quality cutoffs, including added
+        'a_g_error' and 'on_cloud' columns.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified FITS file or mask `.npy` file does not exist.
+    KeyError
+        If the input DataFrame lacks required astrometric or photometric columns.
+
+    Example
+    -------
+    >>> import pandas as pd
+    >>> raw_df = pd.DataFrame(
+    ...     {
+    ...         "l": [81.57, 80.00],
+    ...         "b": [0.76, 5.00],
+    ...         "parallax": [2.90, 0.10],
+    ...         "a_g_percentile_lower": [0.17, 0.05],
+    ...         "a_g_percentile_upper": [0.74, 0.10],
+    ...     }
+    ... )
+    >>> clean_stars = classify_and_filter_stars(
+    ...     catalog_df=raw_df,
+    ...     fits_path="../fitsfiles",
+    ...     mask_path="../mask",
+    ...     prefix_source="dr21",
+    ...     prefix_emission="12co",
+    ... )
+    # Returns a DataFrame with inside-boundary stars and 'on_cloud' classification.
+
+    Notes
+    -----
+    - The 3D cluster mask is collapsed into a 2D sky footprint via `np.any(masks_3d, axis=0)`.
+    - Coordinates outside the range [0, num_x) and [0, num_y) are strictly discarded.
+    - Requires `astropy`, `numpy`, and `pandas` installed.
+    """
+    # 1. Load WCS header and 2D footprint
+    fits_file = os.path.join(fits_path, f'{prefix_source}_{prefix_emission}_mom8.fits')
+    header = fits.getheader(fits_file)
+    wcs_proj = WCS(header)
+    
+    mask_file = os.path.join(mask_path, f'{prefix_source}_{prefix_emission}_masks_dropped.npy')
+    masks_3d = np.load(mask_file)
+    mask_2d = np.any(masks_3d, axis=0)
+    num_y, num_x = mask_2d.shape
+
+    # 2. Standardize column names
+    df = catalog_df.copy()
+    df.columns = [col.lower() for col in df.columns]
+
+    # 3. Compute A_G error (Yan et al. 2019, Eq. 1)
+    df['a_g_error'] = (df['a_g_percentile_upper'] - df['a_g_percentile_lower']) / 2.0
+
+    # 4. Project Galactic coordinates (l, b) to pixel coordinates (x, y)
+    pix_x, pix_y = wcs_proj.all_world2pix(df['l'], df['b'], 0)
+
+    # 5. Filter stars inside the spatial bounds of the map
+    inside_map = (pix_x >= 0) & (pix_x < num_x) & (pix_y >= 0) & (pix_y < num_y)
+    df_filtered = df[inside_map].copy()
+    valid_x = pix_x[inside_map].astype(int)
+    valid_y = pix_y[inside_map].astype(int)
+
+    # 6. Assign on-cloud boolean flag
+    df_filtered['on_cloud'] = mask_2d[valid_y, valid_x]
+
+    # 7. Apply parallax and extinction uncertainty cutoffs
+    valid_parallax = df_filtered['parallax'] >= min_parallax
+    valid_extinction = df_filtered['a_g_error'] >= min_ag_error
+    clean_sample = df_filtered[valid_parallax & valid_extinction].copy()
+
+    return clean_sample
