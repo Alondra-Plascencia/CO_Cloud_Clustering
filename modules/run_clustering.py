@@ -27,7 +27,8 @@ from uncertainties import unumpy as unp
 
 # External modules
 from module_data_path import cube_data_path, plot_data_path, fits_data_path, mask_data_path, catalog_data_path
-from module_utils import rms, smooth, cube_mom0, cube_mom8, cube_smoothing, plot_mom8, plot_mom8_comparison, plot_mom8_not_smoothed, mask_edges, distance_parallax, vot_to_csv
+from module_utils import rms, smooth, cube_mom0, cube_mom8, cube_smoothing, plot_mom8, plot_mom8_comparison, plot_mom8_not_smoothed, mask_edges
+from module_utils import distance_parallax, vot_to_csv, classify_and_filter_stars
 from module_clustering import make_clustering, make_catalog, make_plot_clusters, make_mask, catalog_mask_drop
 
 stages = [4]
@@ -148,25 +149,47 @@ def stage3():
     data_mom8_path_c18o = os.path.join(fits_path, f'{prefix_source}_c18o_mom8.fits')
 
     # Drop list
-    drop_list = []
+    drop_list = [3,4,5,9,10,11]
 
     plot_mom8_comparison(mom_path=data_mom8_path_12co, plots_path=plots_path, catalog_path=catalog_path, prefix_source=prefix_source, prefix_emission='12co', dropped=False, gamma=1.0, vmin=0.0, vmax=45.0)
     catalog_mask_drop(catalog_path=catalog_path, mask_path=mask_path, drop_list=drop_list, prefix_source=prefix_source, prefix_emission='12co')
     plot_mom8_comparison(mom_path=data_mom8_path_12co, plots_path=plots_path, catalog_path=catalog_path, prefix_source=prefix_source, prefix_emission='12co', dropped=True, gamma=1.0, vmin=0.0, vmax=45.0)
 
 #Calculates the mode, median, 5th and 95th percentiles, and the posterior normalization factor using the parallax and its error.
-def stageprueba():
-    # data files directory path
+def stage4():
+    # Directory paths
     data_path = cube_data_path()
-    
-    # Create CSV
-    vot_to_csv(os.path.join(data_path, '1747168455448O-result.vot'), '1747168455448O-result')
-    
-    # original data frame
-    data_frame = os.path.join(data_path, '1747168455448O-result.csv')
+    fits_path = fits_data_path()
+    mask_path = mask_data_path()
+    catalog_path = catalog_data_path()
 
-    #Calculate Distance
-    distance_parallax(data_frame)
+    prefix_source = 'dr21'
+    prefix_emission = '12co'
+    vot_filename = 'ba8160b4-b38b-11f1-a4dd-bc97e148b76b-O-result'
+
+    # Convert VOTable to CSV if needed
+    raw_csv_path = os.path.join(data_path, f'{vot_filename}.csv')
+    if not os.path.exists(raw_csv_path):
+        vot_to_csv(os.path.join(data_path, f'{vot_filename}.vot'), vot_filename)
+
+    # Load raw catalog and apply spatial and quality filters
+    raw_df = pd.read_csv(raw_csv_path)
+    clean_df = classify_and_filter_stars(
+        catalog_df=raw_df,
+        fits_path=fits_path,
+        mask_path=mask_path,
+        prefix_source=prefix_source,
+        prefix_emission=prefix_emission,
+        min_parallax=0.25,
+        min_ag_error=0.05
+    )
+
+    # Save classified stars
+    classified_path = os.path.join(catalog_path, f'{prefix_source}_gaia_classified.csv')
+    clean_df.to_csv(classified_path, index=False)
+
+    # Compute distances on the filtered sample
+    distance_parallax(clean_df)
 
 
 if __name__ == '__main__': 
@@ -178,4 +201,4 @@ if __name__ == '__main__':
     elif 3 in stages:
         stage3()
     elif 4 in stages:
-        stageprueba()
+        stage4()
