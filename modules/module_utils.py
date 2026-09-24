@@ -6,8 +6,12 @@ from typing import Union
 import numpy as np
 import pandas as pd
 import scipy
+from scipy.special import erf
+from sklearn.isotonic import IsotonicRegression
 import math
 import os
+import emcee
+import corner
 
 import matplotlib.pyplot as plt 
 from matplotlib.colors import LogNorm
@@ -557,3 +561,196 @@ def classify_and_filter_stars(
     clean_sample = df_filtered[valid_parallax & valid_extinction].copy()
 
     return clean_sample
+
+def baseline_subtraction(df: pd.DataFrame, plots_path: str, prefix_source: str = 'dr'):
+    """
+    Performs baseline fitting and subtraction on the extinction data using isotonic regression.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing the extinction data with columns 'r_mode_pc', 'a_g_val', 'a_g_error' and 'on_cloud'.
+    plots_path : str
+        Path to save the baseline fitting plot.
+    prefix_source : str, optional
+        Prefix for the source name used in the plot title, by default 'dr21'.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing the net extinction values after baseline subtraction.
+    object
+        The fitted isotonic regression model.
+    """
+    
+    # Separate on-cloud and off-cloud stars
+    df_off = df[df['on_cloud'] == False].copy()
+    
+    # Calculate the weights
+    weights = 1 / (df_off['a_g_error'] ** 2+1e-6)  # Avoid division by zero
+    
+    # Adjust isotonic regression to handle weights
+    ir = IsotonicRegression(increasing=True, out_of_bounds='clip') # out_of_bounds='clip' to handle extrapolation
+    ir.fit(df_off['r_mode_pc'], df_off['a_g_val'], sample_weight=weights)
+    
+    # Subtract the fitted baseline from the original data
+    df['a_g_expected'] = ir.predict(df['r_mode_pc'])
+    df['a_g_net'] = df['a_g_val'] - df['a_g_expected']
+    
+    # Preliminar plot
+    plt.figure(figsize=(10, 6))
+    plt.scatter(df_off['r_mode_pc'], df_off['a_g_val'], s=10, alpha=0.3, label='Off-cloud stars', color='blue') # Background stars
+    df_on = df[df['on_cloud'] == True]
+    plt.scatter(df_on['r_mode_pc'], df_on['a_g_val'], s=15, alpha=0.6, label='On-cloud stars', color='red') # On-cloud stars
+    
+    # Plot the fitted isotonic regression line
+    x_plot = np.linspace(df['r_mode_pc'].min(), df['r_mode_pc'].max(), 500)
+    y_plot = ir.predict(x_plot)
+    plt.plot(x_plot, y_plot, color='green', linewidth=2, label='Fitted Baseline') # Isotonic Regression
+    
+    plt.xlabel('Distance (pc)')
+    plt.ylabel('A_G (mag)')
+    plt.title(f'Baseline Fitting for {prefix_source}')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+    
+    plt.savefig(os.path.join(plots_path, f'{prefix_source}_baseline_fit.pdf'), bbox_inches='tight')
+    plt.close()
+    
+    return df, ir
+
+def log_prior(theta):
+    """
+    Defines a uniform prior for the parameters of the model, the physical boundaries for the free parameters:
+    Parameters
+    ----------
+    theta = [D, mu1, sigma1, mu2, sigma2 = theta]
+    
+    D: Distance to the cloud (pc) (500 - 3000 pc)
+    mu1: Foreground mean extinction (close to 0)
+    sigma1, sigma 2: Data spread 
+    mu2: Background mean extinction (garter than mu1)
+    """
+
+    D, mu1, sigma1, mu2, sigma2 = theta
+    
+    if (500 < D < 3000) and (-0.5 < mu1 < 0.5) and (0 < sigma1 < 1) and (mu1 < mu2 < 5) and (0 < sigma2 < 2):
+        return 0.0
+    return -np.inf
+
+def log_likelihood(theta, r, r_error, ag, a_g_error):
+    """
+    Defines the log probability function for the model, given the data and the parameters.
+    
+    Parameters
+    ----------
+    theta: [D, mu1, sigma1, mu2, sigma2 = theta]
+    r: Distance to the star (pc)
+    r_error: Distance error (pc)
+    ag: Extinction value (mag)
+    a_g_error: Extinction error (mag)
+    
+    Returns
+    -------
+    log_likelihood: float
+        The log probability value for the given parameters and data.
+    """
+    
+    D, mu1, sigma1, mu2, sigma2 = theta
+    
+    # Probabilityy that the star is in the foreground
+    f_i = 0.5 * (1 + erf((r - D) / (np.sqrt(2) * r_error)))
+    
+    # Total variances 
+    var1 = sigma1**2 + a_g_error**2
+    var2 = sigma2**2 + a_g_error**2
+    
+    # Gaussian probabilities for foreground and background
+    fore = (1 - f_i) * (1 / np.sqrt(2 * np.pi * var1)) * np.exp(-0.5 * ((ag - mu1)**2 / var1))
+    back = f_i * (1 / np.sqrt(2 * np.pi * var2)) * np.exp(-0.5 * ((ag - mu2)**2 / var2))
+    
+    total_prob = fore + back
+    
+    return np.sum(np.log(np.clip(total_prob, 1e-10, None)))
+
+def log_posterior(theta, r, r_error, ag, a_g_error):
+    """
+    Defines the log posterior probability function for the model, given the data and the parameters.
+    Bayes Theorem: log_posterior = log_prior + log_likelihood
+    """
+    
+    lp = log_prior(theta)
+    if not np.isfinite(lp):
+        return -np.inf
+    ll = log_likelihood(theta, r, r_error, ag, a_g_error)
+    
+    return lp + ll
+
+def run_mcmc(df: pd.DataFrame, plots_path: str, prefix_source: str = 'dr21', nwalkers: int = 50, nsteps: int = 1000, nburn: int = 200) -> np.ndarray:
+    """
+    Runs emcee on the on-cloud stars to find the distance to the molecular cloud.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing the extinction data
+    plots_path : str
+        Path to save the MCMC corner plot.
+    prefix_source : str, optional
+        Prefix for the source name used in the plot title, by default 'dr21'.
+    
+    Returns
+    -------
+    D_median : float
+        Most probable distance to the cloud
+    error_plus : float
+        Upper error bound
+    error_minus : float
+        Lower error bound
+    """
+    
+    # Extract data from DataFrame
+    r = df['r_mode_pc'].values
+    r_error = (df['r_95%'].values - df['r_5%'].values) / 3.29 # esto no estoy segura de los valores porque decia  r_error pero que según los catalogos de Bailer-Jones (Gaia DR2) es r_95% - r_5% / 3.29
+    ag = df['a_g_net'].values
+    ag_error = df['a_g_error'].values
+    
+    df_on = df[df['on_cloud'] == True].copy()
+    
+    # Extract variables and approximate distance errors using Bailer-Jones (2015) method
+    r = df_on['r_mode_pc'].values
+    r_error = (df_on['r_95%'].values - df_on['r_5%'].values) / 3.29
+    ag = df_on['a_g_net'].values
+    ag_error = df_on['a_g_error'].values
+    
+    # Initial guess: [D, mu1, sigma1, mu2, sigma2]
+    initial_guess = np.array([1400, 0.0, 0.1, 1.0, 0.2])
+    
+    nwalkers = 32
+    ndim = len(initial_guess)
+    np.random.seed(42)  # For reproducibility
+    pos = initial_guess + 1e-4 * np.random.randn(nwalkers, ndim)
+    
+    print("Running MCMC...")
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior, args=[r, r_error, ag, ag_error])
+    
+    # Run chain
+    sampler.run_mcmc(pos, 1000, progress=True)
+    
+    # Discard burn-in
+    samples = sampler.get_chain(discard=200, flat=True)
+    
+    # Corner plot
+    fig = corner.corner(samples, labels=[r"$D$ (pc)", r"$\mu_1$", r"$\sigma_1$", r"$\mu_2$", r"$\sigma_2$"], quantiles=[0.16, 0.5, 0.84], show_titles=True)
+    fig.savefig(os.path.join(plots_path, f'{prefix_source}_mcmc_corner.pdf'))
+    plt.close()
+    
+    # Extract median percentiles
+    D_mcmc = np.percentile(samples[:, 0], [16, 50, 84])
+    D_median = D_mcmc[1]
+    error_minus = D_median - D_mcmc[0]
+    error_plus = D_mcmc[2] - D_median
+    
+    print(f"\nFinal distance to the cloud: {D_median:.2f} pc (+{error_plus:.2f}, -{error_minus:.2f})")
+    
+    return D_median, error_plus, error_minus

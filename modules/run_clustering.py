@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import math
 import scipy
 import os
+import json
 
 # Matplotlib figures to annotate
 from matplotlib.patches import Rectangle
@@ -28,10 +29,11 @@ from uncertainties import unumpy as unp
 # External modules
 from module_data_path import cube_data_path, plot_data_path, fits_data_path, mask_data_path, catalog_data_path
 from module_utils import rms, smooth, cube_mom0, cube_mom8, cube_smoothing, plot_mom8, plot_mom8_comparison, plot_mom8_not_smoothed, mask_edges
-from module_utils import distance_parallax, vot_to_csv, classify_and_filter_stars
+from module_utils import distance_parallax, vot_to_csv, classify_and_filter_stars, baseline_subtraction, run_mcmc
 from module_clustering import make_clustering, make_catalog, make_plot_clusters, make_mask, catalog_mask_drop
 
-stages = [4]
+
+stages = [5]
 
 # cube smoothing and edges mask
 def stage1():
@@ -132,7 +134,7 @@ def stage2():
     
     make_plot_clusters(mom_path=data_mom8_path_12co, catalog_path=catalog_path, mask_path=mask_path, plots_path=plots_path, prefix_source=prefix_source, prefix_emission='12co', gamma=1.0, vmin=0.0, vmax=45.0)
     
-# drop bad indexes (by eye) before and after
+# Drop bad indexes (by eye) before and after
 def stage3():
     # fits, plots, catalog and mask files directory path
     fits_path = fits_data_path()
@@ -155,7 +157,7 @@ def stage3():
     catalog_mask_drop(catalog_path=catalog_path, mask_path=mask_path, drop_list=drop_list, prefix_source=prefix_source, prefix_emission='12co')
     plot_mom8_comparison(mom_path=data_mom8_path_12co, plots_path=plots_path, catalog_path=catalog_path, prefix_source=prefix_source, prefix_emission='12co', dropped=True, gamma=1.0, vmin=0.0, vmax=45.0)
 
-#Calculates the mode, median, 5th and 95th percentiles, and the posterior normalization factor using the parallax and its error.
+# Calculates the mode, median, 5th and 95th percentiles, and the posterior normalization factor using the parallax and its error.
 def stage4():
     # Directory paths
     data_path = cube_data_path()
@@ -163,6 +165,7 @@ def stage4():
     mask_path = mask_data_path()
     catalog_path = catalog_data_path()
 
+    # Source prefix
     prefix_source = 'dr21'
     prefix_emission = '12co'
     vot_filename = 'ba8160b4-b38b-11f1-a4dd-bc97e148b76b-O-result'
@@ -191,7 +194,46 @@ def stage4():
     # Compute distances on the filtered sample
     distance_parallax(clean_df)
 
+# Baseline fitting, subtraction, and MCMC for distance estimation
+def stage5():
+    # Directory paths
+    catalog_path = catalog_data_path()
+    plots_path = plot_data_path()
+    
+    # Source prefix
+    prefix_source = 'dr21'
+    
+    # Load the classified stars catalog
+    distance_file = os.path.join(catalog_path, 'distances.csv')
+    if not os.path.exists(distance_file):
+        print(f"Distance file {distance_file} not found. Run stage 4.")
+        return
+    
+    df_distances = pd.read_csv(distance_file)
+    
+    df_net, ir_model = baseline_subtraction(df_distances, plots_path=plots_path, prefix_source=prefix_source)
+    
+    # Save the net catalog 
+    net_catalog_path = os.path.join(catalog_path, f'{prefix_source}_net_extinction.csv')
+    df_net.to_csv(net_catalog_path, index=False)
+    print(f"Net extinction catalog saved in {net_catalog_path}")
+    
+    # Bayesian inference and MCMC
+    D_val, e_plus, e_minus = run_mcmc(
+        df=df_net, plots_path=plots_path, prefix_source=prefix_source
+    )
 
+    # Export the final distance
+    final_distance = {
+        "distance_pc": D_val,
+        "error_plus_pc": e_plus,
+        "error_minus_pc": e_minus
+    }
+    final_json_path = os.path.join(catalog_path, f'{prefix_source}_final_distance.json')
+    with open(final_json_path, 'w') as f:
+        json.dump(final_distance, f, indent=4)
+    print(f"Final distance saved to {final_json_path}")
+        
 if __name__ == '__main__': 
     
     if 1 in stages:
@@ -202,3 +244,5 @@ if __name__ == '__main__':
         stage3()
     elif 4 in stages:
         stage4()
+    elif 5 in stages:
+        stage5()
