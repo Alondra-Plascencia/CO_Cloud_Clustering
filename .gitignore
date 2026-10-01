@@ -4,6 +4,7 @@
 /mask/*.npy
 /fitsfiles/*.fits
 /catalog/*.csv
+/catalog/*.json
 /data/*.csv
 /data/*.vot
 /data/*.fits
