@@ -4,7 +4,10 @@
 /mask/*.npy
 /fitsfiles/*.fits
 /catalog/*.csv
+/catalog/*.json
+/notebooks/*.ipynb
 /data/*.csv
 /data/*.vot
 /data/*.fits
 /modules/__pycache__
+notebooks/.ipynb_checkpoints/Astrondendro_exploratorio-checkpoint.ipynb

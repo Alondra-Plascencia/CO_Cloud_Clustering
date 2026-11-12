@@ -634,7 +634,7 @@ def log_prior(theta):
 
     D, mu1, sigma1, mu2, sigma2 = theta
     
-    if (500 < D < 3000) and (-0.5 < mu1 < 0.5) and (0 < sigma1 < 1) and (mu1 < mu2 < 5) and (0 < sigma2 < 2):
+    if (800 < D < 2200) and (-0.5 < mu1 < 0.5) and (0 < sigma1 < 1) and (mu1 < mu2 < 5) and (0 < sigma2 < 2): # 500 < D < 3000
         return 0.0
     return -np.inf
 
@@ -726,7 +726,7 @@ def run_mcmc(df: pd.DataFrame, plots_path: str, prefix_source: str = 'dr21', nwa
     # Initial guess: [D, mu1, sigma1, mu2, sigma2]
     initial_guess = np.array([1400, 0.0, 0.1, 1.0, 0.2])
     
-    nwalkers = 32
+    nwalkers = 64 #32 before
     ndim = len(initial_guess)
     np.random.seed(42)  # For reproducibility
     pos = initial_guess + 1e-4 * np.random.randn(nwalkers, ndim)
@@ -735,13 +735,19 @@ def run_mcmc(df: pd.DataFrame, plots_path: str, prefix_source: str = 'dr21', nwa
     sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior, args=[r, r_error, ag, ag_error])
     
     # Run chain
-    sampler.run_mcmc(pos, 1000, progress=True)
+    sampler.run_mcmc(pos, 2500, progress=True) #1000 before
     
     # Discard burn-in
-    samples = sampler.get_chain(discard=200, flat=True)
+    samples = sampler.get_chain(discard=500, flat=True) #200 before
     
     # Corner plot
-    fig = corner.corner(samples, labels=[r"$D$ (pc)", r"$\mu_1$", r"$\sigma_1$", r"$\mu_2$", r"$\sigma_2$"], quantiles=[0.16, 0.5, 0.84], show_titles=True)
+    fig = corner.corner(
+        samples, 
+        labels=[r"$D$ (pc)", r"$\mu_1$", r"$\sigma_1$", r"$\mu_2$", r"$\sigma_2$"], 
+        quantiles=[0.16, 0.5, 0.84], 
+        show_titles=True,
+        smooth=1.0,
+        smooth1d=1.0)
     fig.savefig(os.path.join(plots_path, f'{prefix_source}_mcmc_corner.pdf'))
     plt.close()
     
